@@ -39,23 +39,6 @@ mod tests {
         assert_eq!(content.unwrap().content_hash, content_hash);
     }
 
-    /// Tests transferring ownership of an NFT.
-    /// - Verifies that ownership transfer succeeds when initiated by the current owner.
-    /// - Verifies that the new owner is correctly updated.
-    #[ink::test]
-    fn test_transfer_ownership() {
-        let mut marketplace = NFTMarketplace::new();
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-        let content_hash = String::from("unique_hash");
-
-        let content_id = marketplace.mint_nft(content_hash).unwrap();
-        let result = marketplace.transfer_ownership(content_id, accounts.bob);
-        assert!(result.is_ok());
-
-        let content = marketplace.get_content(content_id).unwrap();
-        assert_eq!(content.owner, accounts.bob);
-    }
-
     /// Tests listing an NFT for sale.
     /// - Verifies that the NFT is listed with the correct price and seller information.
     /// - Verifies that the listing is marked as active.
@@ -175,7 +158,6 @@ mod tests {
     }
 
     /// Tests unauthorized actions by a third party.
-    /// - Verifies that a third party cannot transfer ownership of an NFT.
     /// - Verifies that a third party cannot cancel a listing.
     #[ink::test]
     fn test_unauthorized_actions() {
@@ -189,10 +171,6 @@ mod tests {
 
         // Set caller to Charlie (unauthorized third party)
         test::set_caller::<DefaultEnvironment>(accounts.charlie);
-
-        // Attempt to transfer ownership (should fail)
-        let transfer_result = marketplace.transfer_ownership(content_id, accounts.charlie);
-        assert_eq!(transfer_result, Err(Error::NotOwner));
 
         // Attempt to cancel the listing (should fail)
         let cancel_result = marketplace.cancel_listing(content_id);

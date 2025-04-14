@@ -192,37 +192,6 @@ mod nft_marketplace {
             Ok(())
         }
 
-        /// Transfers ownership of an NFT to a new owner.
-        /// 
-        /// # Parameters
-        /// - `content_id`: The ID of the NFT to transfer.
-        /// - `new_owner`: The account ID of the new owner.
-        /// 
-        /// # Returns
-        /// - `Ok(())` if the transfer is successful.
-        /// - `Err(Error::ContentNotFound)` if the NFT does not exist.
-        /// - `Err(Error::NotOwner)` if the caller is neither the owner nor the approved account for the NFT.
-        #[ink(message)]
-        pub fn transfer_ownership(&mut self, content_id: u64, new_owner: AccountId) -> Result<()> {
-            let caller = self.env().caller();
-            let content = self.contents.get(content_id).ok_or(Error::ContentNotFound)?;
-
-            if caller != content.owner && Some(caller) != content.approved {
-                return Err(Error::NotOwner);
-            }
-
-            // Invalidate any active listing
-            if let Some(mut listing) = self.listings.get(content_id) {
-                if listing.is_active {
-                    listing.is_active = false;
-                }
-                self.listings.insert(content_id, &listing);
-                self.env().emit_event(ListingCanceled { asset_id: content_id });
-            }
-
-            self._transfer_ownership(content_id, new_owner)
-        }
-
         /// Approves an account to transfer the specified NFT.
         /// 
         /// # Parameters
@@ -300,7 +269,7 @@ mod nft_marketplace {
         #[ink(message, payable)]
         pub fn buy_asset(&mut self, asset_id: u64) -> Result<()> {
             let mut listing = self.listings.get(asset_id).ok_or(Error::ListingNotFound)?;
-            let content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?; // Still need content for approval check
+            let mut content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?; // Still need content for approval check
             let caller = self.env().caller();
             let transferred = self.env().transferred_value();
 
@@ -309,39 +278,36 @@ mod nft_marketplace {
                 return Err(Error::ListingNotActive);
             }
 
-            // This is the critical approval check
+            // Validate approval
             if content.approved != Some(self.env().account_id()) {
                 return Err(Error::UnauthorizedTransfer);
             }
 
             // Validate payment
             if transferred < listing.price {
-                // Consider returning the sent funds if payment is insufficient
-                // Currently, the funds remain in the contract if this error occurs.
                 return Err(Error::InvalidPrice);
             }
 
-            // --- Rest of the function ---
             // Update state FIRST
             listing.is_active = false;
             self.listings.insert(asset_id, &listing);
 
             // Transfer NFT ownership internally
-            self._transfer_ownership(asset_id, caller)?;
+            content.owner = caller;
+            content.approved = None; // Clear approval after transfer
+            self.contents.insert(asset_id, &content);
 
             // Handle funds
-            let excess = transferred.checked_sub(listing.price).ok_or(Error::TransferFailed)?; // Should not happen if transferred >= listing.price
+            let excess = transferred.checked_sub(listing.price).ok_or(Error::TransferFailed)?;
 
             // Transfer payment to seller
-            self
-                .env()
+            self.env()
                 .transfer(listing.seller, listing.price)
                 .map_err(|_| Error::TransferFailed)?;
 
             // Refund excess
             if excess > 0 {
-                self
-                    .env()
+                self.env()
                     .transfer(caller, excess)
                     .map_err(|_| Error::TransferFailed)?;
             }
