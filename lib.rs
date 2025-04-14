@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
+pub use self::nft_marketplace::{NFTMarketplace, Error};
 #[ink::contract]
 mod nft_marketplace {
     use ink::storage::Mapping;
@@ -10,9 +11,9 @@ mod nft_marketplace {
     #[derive(scale::Encode, scale::Decode, Clone, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct Content {
-        content_hash: String,
-        owner: AccountId,
-        approved: Option<AccountId>,
+        pub content_hash: String,
+        pub owner: AccountId,
+        pub approved: Option<AccountId>, // Add this field to store the approved account
     }
 
     /// Marketplace listing structure
@@ -79,7 +80,7 @@ mod nft_marketplace {
 
     #[ink(storage)]
     pub struct NFTMarketplace {
-        admin: AccountId,
+        pub admin: AccountId,
         contents: Mapping<u64, Content>,
         next_content_id: u64,
         content_hash_to_id: BTreeMap<String, u64>,
@@ -138,7 +139,7 @@ mod nft_marketplace {
             self.content_hash_to_id.insert(content_hash, content_id);
             Ok(content_id)
         }
-        
+
         /// Internal function to transfer ownership of an NFT without permission checks.
         /// 
         /// # Parameters
