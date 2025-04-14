@@ -176,4 +176,25 @@ mod tests {
         let cancel_result = marketplace.cancel_listing(content_id);
         assert_eq!(cancel_result, Err(Error::NotOwner));
     }
+
+    /// Tests that the owner cannot buy their own NFT.
+    /// - Verifies that the owner cannot buy their own NFT.
+    #[ink::test]
+    fn test_owner_cannot_buy_own_nft() {
+        let mut marketplace = NFTMarketplace::new();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let content_hash = String::from("unique_hash");
+
+        // Mint and list an NFT
+        let content_id = marketplace.mint_nft(content_hash).unwrap();
+        marketplace.list_asset(content_id, 100).unwrap();
+
+        // Set caller to the owner (Alice)
+        test::set_caller::<DefaultEnvironment>(accounts.alice);
+        test::set_value_transferred::<DefaultEnvironment>(100);
+
+        // Attempt to buy the NFT (should fail)
+        let result = marketplace.buy_asset(content_id);
+        assert_eq!(result, Err(Error::NotOwner));
+    }
 }

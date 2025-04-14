@@ -269,9 +269,14 @@ mod nft_marketplace {
         #[ink(message, payable)]
         pub fn buy_asset(&mut self, asset_id: u64) -> Result<()> {
             let mut listing = self.listings.get(asset_id).ok_or(Error::ListingNotFound)?;
-            let mut content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?; // Still need content for approval check
+            let mut content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?;
             let caller = self.env().caller();
             let transferred = self.env().transferred_value();
+
+            // Prevent the owner from buying their own NFT
+            if caller == content.owner {
+                return Err(Error::NotOwner);
+            }
 
             // Validate listing state
             if !listing.is_active {
