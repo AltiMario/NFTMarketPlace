@@ -8,15 +8,32 @@ mod nft_marketplace {
     use ink::prelude::collections::BTreeMap;
 
     /// NFT content with ownership and approval
+    ///
+    /// The `Content` struct represents an NFT in the marketplace. It includes:
+    /// - `content_hash`: A unique hash representing the content of the NFT.
+    /// - `owner`: The account ID of the current owner of the NFT.
+    /// - `approved`: An optional field that specifies which account is approved to transfer the NFT.
+    ///   - `Some(AccountId)`: Indicates that the specified account is approved to transfer the NFT.
+    ///   - `None`: Indicates that no account is approved to transfer the NFT.
+    ///
+    /// The `approved` field is used to ensure that only authorized accounts (e.g., the marketplace contract)
+    /// can transfer the NFT on behalf of the owner. This is a standard mechanism in NFT contracts to
+    /// provide flexibility and security.
     #[derive(scale::Encode, scale::Decode, Clone, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct Content {
         pub content_hash: String,
         pub owner: AccountId,
-        pub approved: Option<AccountId>, // Add this field to store the approved account
+        pub approved: Option<AccountId>, // Specifies the approved account for transfers
     }
 
     /// Marketplace listing structure
+    ///
+    /// The `Listing` struct represents an NFT that is listed for sale in the marketplace. It includes:
+    /// - `asset_id`: The ID of the NFT being listed.
+    /// - `seller`: The account ID of the seller.
+    /// - `price`: The price at which the NFT is listed.
+    /// - `is_active`: A boolean indicating whether the listing is active.
     #[derive(scale::Encode, scale::Decode, Clone, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct Listing {
@@ -193,15 +210,24 @@ mod nft_marketplace {
         }
 
         /// Approves an account to transfer the specified NFT.
-        /// 
+        ///
+        /// The `approve` function allows the owner of an NFT to grant permission to another account
+        /// to transfer the NFT on their behalf. This is commonly used to allow the marketplace contract
+        /// to handle NFT transfers during a sale.
+        ///
         /// # Parameters
         /// - `asset_id`: The ID of the NFT to approve.
         /// - `approved`: The account ID to approve.
-        /// 
+        ///
         /// # Returns
         /// - `Ok(())` if the approval is successful.
         /// - `Err(Error::ContentNotFound)` if the NFT does not exist.
         /// - `Err(Error::NotOwner)` if the caller is not the owner of the NFT.
+        ///
+        /// # Notes
+        /// - The `approved` field in the `Content` struct will be set to `Some(approved)` to indicate
+        ///   that the specified account is approved.
+        /// - If the NFT is sold or the listing is canceled, the `approved` field will be cleared (set to `None`).
         #[ink(message)]
         pub fn approve(&mut self, asset_id: u64, approved: AccountId) -> Result<()> {
             let mut content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?;
@@ -216,24 +242,33 @@ mod nft_marketplace {
         }
 
         /// Lists an NFT for sale at the specified price.
-        /// 
+        ///
+        /// The `list_asset` function allows the owner of an NFT to list it for sale in the marketplace.
+        /// During this process, the marketplace contract is automatically approved to transfer the NFT
+        /// on behalf of the owner.
+        ///
         /// # Parameters
         /// - `asset_id`: The ID of the NFT to list.
         /// - `price`: The price at which the NFT is listed.
-        /// 
+        ///
         /// # Returns
         /// - `Ok(())` if the listing is successful.
         /// - `Err(Error::ContentNotFound)` if the NFT does not exist.
         /// - `Err(Error::NotOwner)` if the caller is not the owner of the NFT.
         /// - `Err(Error::InvalidPrice)` if the price is zero.
         /// - `Err(Error::AssetAlreadyListed)` if the NFT is already listed.
+        ///
+        /// # Notes
+        /// - The `approved` field in the `Content` struct will be set to `Some(self.env().account_id())`
+        ///   to allow the marketplace contract to transfer the NFT during the sale.
+        /// - If the listing is canceled or the NFT is sold, the `approved` field will be cleared.
         #[ink(message)]
         pub fn list_asset(&mut self, asset_id: u64, price: Balance) -> Result<()> {
             if price == 0 {
                 return Err(Error::InvalidPrice);
             }
 
-            let content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?;
+            let mut content = self.contents.get(asset_id).ok_or(Error::ContentNotFound)?;
             let caller = self.env().caller();
 
             if caller != content.owner {
@@ -247,7 +282,8 @@ mod nft_marketplace {
             }
 
             // Approve the contract to handle transfers
-            self.approve(asset_id, self.env().account_id())?;
+            content.approved = Some(self.env().account_id());
+            self.contents.insert(asset_id, &content);
 
             let listing = Listing {
                 asset_id,
@@ -266,6 +302,27 @@ mod nft_marketplace {
             Ok(())
         }
 
+        /// Buys an NFT from the marketplace.
+        ///
+        /// The `buy_asset` function allows a buyer to purchase an NFT that is listed for sale.
+        /// The function validates the listing, ensures the buyer has transferred sufficient funds,
+        /// and transfers ownership of the NFT to the buyer.
+        ///
+        /// # Parameters
+        /// - `asset_id`: The ID of the NFT to buy.
+        ///
+        /// # Returns
+        /// - `Ok(())` if the purchase is successful.
+        /// - `Err(Error::ListingNotFound)` if the listing does not exist.
+        /// - `Err(Error::ListingNotActive)` if the listing is not active.
+        /// - `Err(Error::UnauthorizedTransfer)` if the marketplace contract is not approved to transfer the NFT.
+        /// - `Err(Error::InvalidPrice)` if the transferred value is less than the listing price.
+        /// - `Err(Error::NotOwner)` if the buyer is already the owner of the NFT.
+        ///
+        /// # Notes
+        /// - The `approved` field in the `Content` struct is validated to ensure the marketplace contract
+        ///   is authorized to transfer the NFT.
+        /// - After the purchase, the `approved` field is cleared (set to `None`).
         #[ink(message, payable)]
         pub fn buy_asset(&mut self, asset_id: u64) -> Result<()> {
             let mut listing = self.listings.get(asset_id).ok_or(Error::ListingNotFound)?;
